@@ -331,6 +331,10 @@ func (c *wsClient) waitFor(event string) json.RawMessage {
 // starting with fewer players fails, and once everyone is ready the match
 // starts and each player receives their own 27-card hand.
 func TestWebSocketFourPlayers(t *testing.T) {
+	// 本測試依賴「加入順序 = 座位順序」，用 DevMode 關閉隨機座位
+	DevMode.Store(true)
+	defer DevMode.Store(false)
+
 	rm := NewRoomManager()
 	srv := httptest.NewServer(http.HandlerFunc(WSHandler(rm)))
 	defer srv.Close()
@@ -592,6 +596,35 @@ func TestDevStartLevel(t *testing.T) {
 		}
 		if g.teamLevels[0] != 13 || g.teamLevels[1] != 13 {
 			t.Errorf("expected team levels 13/13, got %v", g.teamLevels)
+		}
+	})
+}
+
+// TestSeatShuffle verifies that starting a game (non-dev) keeps the host at
+// seat 0 and reseats the other three players consistently.
+func TestSeatShuffle(t *testing.T) {
+	room := NewRoom("shuffle-room", nil)
+	room.withLock(func() {
+		for i := 0; i < 4; i++ {
+			room.players[i] = &Player{ID: fmt.Sprintf("p%d", i), Name: fmt.Sprintf("P%d", i), SeatIndex: i, IsReady: true}
+		}
+		room.shuffleSeats()
+
+		if room.players[0].Name != "P0" {
+			t.Errorf("host must stay at seat 0, got %s", room.players[0].Name)
+		}
+		seen := map[string]bool{}
+		for i, p := range room.players {
+			if p == nil {
+				t.Fatalf("seat %d empty after shuffle", i)
+			}
+			if p.SeatIndex != i {
+				t.Errorf("seat %d player has SeatIndex %d", i, p.SeatIndex)
+			}
+			seen[p.Name] = true
+		}
+		if len(seen) != 4 {
+			t.Errorf("expected 4 distinct players after shuffle, got %d", len(seen))
 		}
 	})
 }

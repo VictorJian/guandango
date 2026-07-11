@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"guandango/internal/game"
@@ -31,7 +33,7 @@ type Spectator struct {
 var abandonTimeout = 2 * time.Minute
 
 // DevMode 開啟開發用功能（如自訂起始階層）。由 main 依環境變數 DEV=1 設定。
-var DevMode bool
+var DevMode atomic.Bool
 
 // RoomManager owns all rooms and routes clients to them.
 type RoomManager struct {
@@ -316,7 +318,7 @@ func (r *Room) bindSocketListeners(c *Client) {
 
 // setStartLevel（開發環境使用）：房主在開局前設定比賽起始階層。
 func (r *Room) setStartLevel(c *Client, level int) {
-	if !DevMode {
+	if !DevMode.Load() {
 		c.Emit("error", "此功能僅供開發環境使用")
 		return
 	}
@@ -554,13 +556,19 @@ func (r *Room) startGame() bool {
 			return false
 		}
 	}
+
+	// 正式環境：房主固定座位0，其餘三人隨機洗座位（= 隨機分配隊友）。
+	// DEV=1 時保持加入順序，方便開發時固定隊伍測試。
+	if !DevMode.Load() {
+		r.shuffleSeats()
+	}
 	r.broadcastState()
 
 	gamePlayers := make([]*Player, 4)
 	copy(gamePlayers, r.players[:])
 
 	startLevel := 2
-	if DevMode {
+	if DevMode.Load() {
 		startLevel = r.startLevel
 	}
 	r.match = NewMatch(r, gamePlayers, startLevel)
@@ -568,6 +576,20 @@ func (r *Room) startGame() bool {
 
 	r.Broadcast("matchStarted", nil)
 	return true
+}
+
+// shuffleSeats 隨機重排座位1~3的玩家（房主座位0不動）。
+// 隊伍依座位劃分（0/2 vs 1/3），因此洗座位等同隨機分配隊友。
+func (r *Room) shuffleSeats() {
+	others := []*Player{r.players[1], r.players[2], r.players[3]}
+	rand.Shuffle(len(others), func(i, j int) {
+		others[i], others[j] = others[j], others[i]
+	})
+	for i, p := range others {
+		p.SeatIndex = i + 1
+		r.players[i+1] = p
+	}
+	r.Broadcast("error", "座位已隨機分配，隊友重新配對！")
 }
 
 func (r *Room) broadcastState() {
@@ -598,7 +620,7 @@ func (r *Room) broadcastState() {
 		"players":    playerList,
 		"gameMode":   r.gameMode,
 		"spectators": spectatorList,
-		"devMode":    DevMode,
+		"devMode":    DevMode.Load(),
 		"startLevel": r.startLevel,
 	})
 }
