@@ -1,0 +1,6 @@
+.git
+.idea
+.DS_Store
+web/node_modules
+web/dist
+README.md
