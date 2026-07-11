@@ -106,8 +106,14 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
                   >
                     <div className="flex justify-between items-start mb-2">
                       <div className="font-bold text-[#9cdcfe]">房間: {room.id}</div>
-                      <div className={`text-xs px-2 py-1 rounded ${room.inGame ? 'bg-red-900/50 text-red-300' : 'bg-green-900/50 text-green-300'}`}>
-                        {room.inGame ? '遊戲中' : '等待中'}
+                      <div className={`text-xs px-2 py-1 rounded ${
+                        room.inGame && room.playerCount === 0
+                          ? 'bg-orange-900/50 text-orange-300'
+                          : room.inGame
+                              ? 'bg-red-900/50 text-red-300'
+                              : 'bg-green-900/50 text-green-300'
+                      }`}>
+                        {room.inGame && room.playerCount === 0 ? '等待重連' : room.inGame ? '遊戲中' : '等待中'}
                       </div>
                     </div>
                     <div className="text-sm text-gray-400 flex justify-between">

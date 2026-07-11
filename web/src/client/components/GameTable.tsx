@@ -315,6 +315,27 @@ export const GameTable: React.FC<Props> = ({
           }));
   };
 
+  // 接風提示：檯面領先者已出完牌時，這輪結束後由其「順位」（下一個有牌的玩家）接風自由出牌
+  const jiefengHint = (() => {
+      if (!gameState || gameState.phase !== 'Playing' || !gameState.lastHand) return null;
+      const leader = gameState.lastHand.playerIndex;
+      if (leader === mySeat) return null;
+      const cnt = (s: number) => {
+          const h = gameState.hands[s];
+          return Array.isArray(h) ? h.length : (h ?? 0);
+      };
+      if (cnt(leader) !== 0) return null;
+      for (let i = 1; i <= 3; i++) {
+          const seat = (leader + i) % 4;
+          if (cnt(seat) > 0) {
+              if (seat === mySeat) return '出牌者已出完牌，按「過」後將由你順位自由出牌';
+              const name = roomState.players.find(p => p && p.seatIndex === seat)?.name || `座位${seat}`;
+              return `出牌者已出完牌，全員過牌後由 ${name} 順位出牌`;
+          }
+      }
+      return null;
+  })();
+
   const isTributePhase = gameState && (gameState.phase === 'Tribute' || gameState.phase === 'ReturnTribute');
   const amIPaying = !isSpectator && isTributePhase && gameState.tributeState && (
       (gameState.phase === 'Tribute' && gameState.tributeState.pendingTributes.some((t: any) => t.from === mySeat)) ||
@@ -779,6 +800,11 @@ export const GameTable: React.FC<Props> = ({
                     >
                       過
                     </button>
+                </div>
+            )}
+            {!isSpectator && gameState && gameState.currentTurn === mySeat && gameState.phase === 'Playing' && jiefengHint && (
+                <div className="text-center text-emerald-300 text-xs md:text-sm mt-2 animate-pulse">
+                    {jiefengHint}
                 </div>
             )}
             

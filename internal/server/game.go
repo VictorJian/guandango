@@ -638,14 +638,11 @@ func contains(s []int, v int) bool {
 	return false
 }
 
-// endRoundAndFindNext ends the trick; winner (or partner via 接風) leads next.
+// endRoundAndFindNext ends the trick; winner leads next.
+// 接風採「順位」制：贏家已出完牌時，由其下一個還有牌的玩家接風
+// （下方迴圈從贏家開始依座位順序找第一個有牌的人，天然符合順位）。
 func (g *Game) endRoundAndFindNext(winner int) {
 	log.Printf("[endRound] Round ended. Winner: %d", winner)
-
-	// 接風: if winner already finished, partner leads
-	if len(g.hands[winner]) == 0 {
-		winner = (winner + 2) % 4
-	}
 
 	g.lastHand = nil
 	g.roundActions = map[int]RoundAction{}
