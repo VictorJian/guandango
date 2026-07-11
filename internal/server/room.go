@@ -330,7 +330,8 @@ func (r *Room) setStartLevel(c *Client, level int) {
 		c.Emit("error", "對局進行中無法設定")
 		return
 	}
-	if level < 2 || level > 14 {
+	// 升到 A 即獲勝，起始階層最高 K（13）
+	if level < 2 || level > 13 {
 		return
 	}
 	r.startLevel = level

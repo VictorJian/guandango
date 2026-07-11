@@ -716,9 +716,10 @@ export const GameTable: React.FC<Props> = ({
                                onChange={e => onSetStartLevel?.(parseInt(e.target.value))}
                                className="bg-[#3c3c3c] text-white rounded px-2 py-1 text-sm focus:outline-none"
                            >
-                               {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(v => (
+                               {/* 升到 A 即獲勝，起始階層最高只到 K */}
+                               {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(v => (
                                    <option key={v} value={v}>
-                                       {v <= 10 ? v : ['J', 'Q', 'K', 'A'][v - 11]}
+                                       {v <= 10 ? v : ['J', 'Q', 'K'][v - 11]}
                                    </option>
                                ))}
                            </select>
@@ -904,7 +905,7 @@ export const GameTable: React.FC<Props> = ({
                   ⏳ 3秒後自動開始下一局...
               </div>
               <div className="text-sm text-gray-400 mt-4">
-                  (對局將持續到某隊打到A並連勝兩次)
+                  (某隊升到A即獲勝)
               </div>
           </div>
       )}

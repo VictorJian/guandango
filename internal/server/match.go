@@ -17,8 +17,7 @@ type Match struct {
 	teamLevels  map[int]int
 	activeTeam  int
 
-	consecutiveWins map[int]int
-	MatchWinner     *int
+	MatchWinner *int
 
 	lastWinners []int
 
@@ -27,16 +26,16 @@ type Match struct {
 }
 
 func NewMatch(room *Room, players []*Player, startLevel int) *Match {
-	if startLevel < 2 || startLevel > 14 {
+	// 升到 A（14）即獲勝，因此起始階層最高 K（13）
+	if startLevel < 2 || startLevel > 13 {
 		startLevel = 2
 	}
 	return &Match{
-		room:            room,
-		players:         players,
-		startLevel:      startLevel,
-		teamLevels:      map[int]int{0: startLevel, 1: startLevel},
-		consecutiveWins: map[int]int{0: 0, 1: 0},
-		active:          true,
+		room:       room,
+		players:    players,
+		startLevel: startLevel,
+		teamLevels: map[int]int{0: startLevel, 1: startLevel},
+		active:     true,
 	}
 }
 
@@ -44,7 +43,6 @@ func (m *Match) StartMatch() {
 	log.Printf("[Match %s] Starting new match (start level %d)", m.room.ID, m.startLevel)
 	m.teamLevels = map[int]int{0: m.startLevel, 1: m.startLevel}
 	m.activeTeam = 0
-	m.consecutiveWins = map[int]int{0: 0, 1: 0}
 	m.MatchWinner = nil
 	m.startNextGame()
 }
@@ -93,22 +91,13 @@ func (m *Match) handleGameEnd(winners []int) {
 		log.Printf("[Match %s] Banker changed to Team %d", m.room.ID, m.activeTeam)
 	}
 
-	if m.teamLevels[winningTeam] == 14 {
-		m.consecutiveWins[winningTeam]++
-		m.consecutiveWins[1-winningTeam] = 0
-
-		log.Printf("[Match %s] Team %d at level A. Consecutive wins: %d", m.room.ID, winningTeam, m.consecutiveWins[winningTeam])
-
-		if m.consecutiveWins[winningTeam] >= 2 {
-			team := winningTeam
-			m.MatchWinner = &team
-			log.Printf("[Match %s] MATCH WON by Team %d!", m.room.ID, winningTeam)
-			m.broadcastMatchEnd(winningTeam)
-			return
-		}
-	} else {
-		m.consecutiveWins[0] = 0
-		m.consecutiveWins[1] = 0
+	// 升到 A（14）即獲勝
+	if m.teamLevels[winningTeam] >= 14 {
+		team := winningTeam
+		m.MatchWinner = &team
+		log.Printf("[Match %s] MATCH WON by Team %d (reached A)!", m.room.ID, winningTeam)
+		m.broadcastMatchEnd(winningTeam)
+		return
 	}
 
 	m.lastWinners = winners
@@ -170,5 +159,4 @@ func (m *Match) ForceEndMatch() {
 		m.CurrentGame = nil
 	}
 	m.MatchWinner = nil
-	m.consecutiveWins = map[int]int{0: 0, 1: 0}
 }
