@@ -233,9 +233,8 @@ func (g *Game) Start() {
 	g.currentPhase = PhaseDealing
 
 	if len(g.prevWinners) == 0 && len(g.winners) == 0 {
-		// Fresh game
+		// Fresh game — teamLevels 由 Match 提供（可能是開發用的自訂起始階層），不在此重設
 		g.activeTeam = 0
-		g.teamLevels = map[int]int{0: 2, 1: 2}
 		g.currentRound = 1
 		g.history = []game.HistoryEntry{}
 		g.historyIDCounter = 0

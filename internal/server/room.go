@@ -30,6 +30,9 @@ type Spectator struct {
 // 對局中所有玩家都離線後，保留房間等待重連的時間
 var abandonTimeout = 2 * time.Minute
 
+// DevMode 開啟開發用功能（如自訂起始階層）。由 main 依環境變數 DEV=1 設定。
+var DevMode bool
+
 // RoomManager owns all rooms and routes clients to them.
 type RoomManager struct {
 	mu    sync.Mutex
@@ -129,10 +132,11 @@ type Room struct {
 	match      *Match
 	gameMode   game.GameMode
 	emptyTimer *time.Timer // 對局中全員離線的等待重連計時器
+	startLevel int         // 起始階層（開發環境使用，預設 2）
 }
 
 func NewRoom(id string, rm *RoomManager) *Room {
-	return &Room{ID: id, manager: rm, gameMode: game.ModeNormal}
+	return &Room{ID: id, manager: rm, gameMode: game.ModeNormal, startLevel: 2}
 }
 
 func (r *Room) withLock(fn func()) {
@@ -300,6 +304,36 @@ func (r *Room) bindSocketListeners(c *Client) {
 	c.On("forceEndGame", func(json.RawMessage) {
 		r.withLock(func() { r.handleForceEnd(c) })
 	})
+	c.On("setStartLevel", func(data json.RawMessage) {
+		// 開發環境使用：自訂比賽起始階層
+		var level int
+		if json.Unmarshal(data, &level) != nil {
+			return
+		}
+		r.withLock(func() { r.setStartLevel(c, level) })
+	})
+}
+
+// setStartLevel（開發環境使用）：房主在開局前設定比賽起始階層。
+func (r *Room) setStartLevel(c *Client, level int) {
+	if !DevMode {
+		c.Emit("error", "此功能僅供開發環境使用")
+		return
+	}
+	if r.getSeat(c) != 0 {
+		c.Emit("error", "只有房主可以設定起始階層")
+		return
+	}
+	if r.match != nil && r.match.MatchWinner == nil {
+		c.Emit("error", "對局進行中無法設定")
+		return
+	}
+	if level < 2 || level > 14 {
+		return
+	}
+	r.startLevel = level
+	r.Broadcast("error", fmt.Sprintf("【開發】起始階層設為 %d", level))
+	r.broadcastState()
 }
 
 func (r *Room) handleForceEnd(c *Client) {
@@ -525,7 +559,11 @@ func (r *Room) startGame() bool {
 	gamePlayers := make([]*Player, 4)
 	copy(gamePlayers, r.players[:])
 
-	r.match = NewMatch(r, gamePlayers)
+	startLevel := 2
+	if DevMode {
+		startLevel = r.startLevel
+	}
+	r.match = NewMatch(r, gamePlayers, startLevel)
 	r.match.StartMatch()
 
 	r.Broadcast("matchStarted", nil)
@@ -560,5 +598,7 @@ func (r *Room) broadcastState() {
 		"players":    playerList,
 		"gameMode":   r.gameMode,
 		"spectators": spectatorList,
+		"devMode":    DevMode,
+		"startLevel": r.startLevel,
 	})
 }

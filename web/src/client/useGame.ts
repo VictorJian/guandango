@@ -37,6 +37,8 @@ export interface RoomState {
   players: ({ name: string, seatIndex: number, isReady: boolean } | null)[];
   gameMode?: GameMode;
   spectators?: { name: string, watchSeat: number }[];
+  devMode?: boolean;     // 開發環境功能開關（伺服器 DEV=1）
+  startLevel?: number;   // 起始階層（開發環境使用）
 }
 
 export function useGame() {
@@ -193,6 +195,11 @@ export function useGame() {
       socket.emit('confirmStart');
   }
 
+  // 開發環境使用：設定比賽起始階層
+  const setStartLevel = (level: number) => {
+      socket.emit('setStartLevel', level);
+  }
+
   const clearAnnouncement = () => setAnnouncement(null);
 
   return {
@@ -207,6 +214,6 @@ export function useGame() {
     clearAnnouncement,
     chatMessages,
     roomList,
-    actions: { joinRoom, setReady, playHand, passTurn, startGame, payTribute, returnTribute, sendChat, switchSeat, setGameMode, useSkill, forceEndGame, fetchRoomList, watchPlayer, confirmStart }
+    actions: { joinRoom, setReady, playHand, passTurn, startGame, payTribute, returnTribute, sendChat, switchSeat, setGameMode, useSkill, forceEndGame, fetchRoomList, watchPlayer, confirmStart, setStartLevel }
   };
 }

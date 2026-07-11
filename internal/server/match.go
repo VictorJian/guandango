@@ -13,6 +13,7 @@ type Match struct {
 	players []*Player
 
 	CurrentGame *Game
+	startLevel  int // 起始階層（開發環境使用，預設 2）
 	teamLevels  map[int]int
 	activeTeam  int
 
@@ -25,19 +26,23 @@ type Match struct {
 	active        bool
 }
 
-func NewMatch(room *Room, players []*Player) *Match {
+func NewMatch(room *Room, players []*Player, startLevel int) *Match {
+	if startLevel < 2 || startLevel > 14 {
+		startLevel = 2
+	}
 	return &Match{
 		room:            room,
 		players:         players,
-		teamLevels:      map[int]int{0: 2, 1: 2},
+		startLevel:      startLevel,
+		teamLevels:      map[int]int{0: startLevel, 1: startLevel},
 		consecutiveWins: map[int]int{0: 0, 1: 0},
 		active:          true,
 	}
 }
 
 func (m *Match) StartMatch() {
-	log.Printf("[Match %s] Starting new match", m.room.ID)
-	m.teamLevels = map[int]int{0: 2, 1: 2}
+	log.Printf("[Match %s] Starting new match (start level %d)", m.room.ID, m.startLevel)
+	m.teamLevels = map[int]int{0: m.startLevel, 1: m.startLevel}
 	m.activeTeam = 0
 	m.consecutiveWins = map[int]int{0: 0, 1: 0}
 	m.MatchWinner = nil

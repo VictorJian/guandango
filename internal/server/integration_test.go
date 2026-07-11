@@ -570,3 +570,28 @@ func TestEmptyRoomCleanup(t *testing.T) {
 	}
 	t.Fatal("empty room was not cleaned up")
 }
+
+// TestDevStartLevel verifies the dev-only custom starting level takes effect.
+func TestDevStartLevel(t *testing.T) {
+	room := NewRoom("dev-level", nil)
+	room.withLock(func() {
+		for i := 0; i < 4; i++ {
+			room.players[i] = &Player{ID: fmt.Sprintf("p%d", i), Name: fmt.Sprintf("P%d", i), SeatIndex: i, IsReady: true}
+		}
+		room.match = NewMatch(room, room.players[:], 13) // 起始階層 K
+		room.match.StartMatch()
+	})
+
+	room.withLock(func() {
+		g := room.match.CurrentGame
+		if g == nil {
+			t.Fatal("game not started")
+		}
+		if g.level != 13 {
+			t.Errorf("expected game level 13, got %d", g.level)
+		}
+		if g.teamLevels[0] != 13 || g.teamLevels[1] != 13 {
+			t.Errorf("expected team levels 13/13, got %v", g.teamLevels)
+		}
+	})
+}

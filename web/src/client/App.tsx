@@ -95,6 +95,7 @@ function App() {
               isSpectator={isSpectator}
               onWatchPlayer={actions.watchPlayer}
               onConfirmStart={actions.confirmStart}
+              onSetStartLevel={actions.setStartLevel}
             />
         )
       )}

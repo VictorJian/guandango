@@ -27,12 +27,13 @@ interface Props {
   isSpectator?: boolean;
   onWatchPlayer?: (seat: number) => void;
   onConfirmStart?: () => void;
+  onSetStartLevel?: (level: number) => void;
 }
 
 export const GameTable: React.FC<Props> = ({
   gameState, roomState, mySeat, onPlay, onPass, onReady, onStart,
   onTribute, onReturnTribute, chatMessages, onSendChat, onSwitchSeat,
-  onSetGameMode, onUseSkill, onForceEndGame, isSpectator, onWatchPlayer, onConfirmStart
+  onSetGameMode, onUseSkill, onForceEndGame, isSpectator, onWatchPlayer, onConfirmStart, onSetStartLevel
 }) => {
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -684,6 +685,32 @@ export const GameTable: React.FC<Props> = ({
             <div className="flex flex-col gap-4 mt-8 items-center">
                <div className="text-white text-xl">等待玩家加入...</div>
                
+               {/* 起始階層選項（開發環境使用，僅房主可調整） */}
+               {roomState.devMode && (
+                   <div className="flex items-center gap-2 bg-[#252526] border border-orange-500/60 rounded px-3 py-2">
+                       <span className="text-orange-400 text-sm font-bold">起始階層</span>
+                       {!isSpectator && me.player?.seatIndex === 0 ? (
+                           <select
+                               value={roomState.startLevel ?? 2}
+                               onChange={e => onSetStartLevel?.(parseInt(e.target.value))}
+                               className="bg-[#3c3c3c] text-white rounded px-2 py-1 text-sm focus:outline-none"
+                           >
+                               {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(v => (
+                                   <option key={v} value={v}>
+                                       {v <= 10 ? v : ['J', 'Q', 'K', 'A'][v - 11]}
+                                   </option>
+                               ))}
+                           </select>
+                       ) : (
+                           <span className="text-white text-sm">
+                               {(roomState.startLevel ?? 2) <= 10
+                                   ? (roomState.startLevel ?? 2)
+                                   : ['J', 'Q', 'K', 'A'][(roomState.startLevel ?? 2) - 11]}
+                           </span>
+                       )}
+                       <span className="text-gray-500 text-xs">（開發環境使用）</span>
+                   </div>
+               )}
                {/* Game mode toggle hidden — Skill mode not available yet (Go server is Normal-mode only) */}
                {!isSpectator && me.player && !me.player.isReady && (
                    <button onClick={onReady} className="bg-blue-500 text-white px-6 py-2 rounded font-bold">準備</button>

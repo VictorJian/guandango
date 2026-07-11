@@ -9,6 +9,12 @@ import (
 )
 
 func main() {
+	// DEV=1 開啟開發用功能（自訂起始階層等）
+	if os.Getenv("DEV") == "1" {
+		server.DevMode = true
+		log.Println("DevMode enabled (DEV=1)")
+	}
+
 	roomManager := server.NewRoomManager()
 
 	mux := http.NewServeMux()
