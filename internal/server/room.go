@@ -39,7 +39,7 @@ func NewRoomManager() *RoomManager {
 
 func (rm *RoomManager) JoinRoom(c *Client, playerName, roomID string) {
 	if roomID == "" {
-		roomID = "default"
+		roomID = "三重夢想家 1"
 	}
 	rm.mu.Lock()
 	room, ok := rm.rooms[roomID]
@@ -217,6 +217,8 @@ func (r *Room) bindSpectatorListeners(c *Client, sp *Spectator) {
 			if r.match != nil && r.match.CurrentGame != nil {
 				r.match.CurrentGame.SendStateToSpectator(sp)
 			}
+			// 讓所有玩家看到觀看對象的變化
+			r.broadcastState()
 		})
 	})
 	c.On("chatMessage", func(data json.RawMessage) {
@@ -449,14 +451,18 @@ func (r *Room) broadcastState() {
 			"isBot":     false,
 		}
 	}
-	spectatorNames := make([]string, 0, len(r.spectators))
+	// 觀戰者名單（含觀看對象），讓所有玩家知道誰在看誰
+	spectatorList := make([]map[string]any, 0, len(r.spectators))
 	for _, sp := range r.spectators {
-		spectatorNames = append(spectatorNames, sp.Name)
+		spectatorList = append(spectatorList, map[string]any{
+			"name":      sp.Name,
+			"watchSeat": sp.WatchSeat,
+		})
 	}
 	r.Broadcast("roomState", map[string]any{
 		"roomId":     r.ID,
 		"players":    playerList,
 		"gameMode":   r.gameMode,
-		"spectators": spectatorNames,
+		"spectators": spectatorList,
 	})
 }

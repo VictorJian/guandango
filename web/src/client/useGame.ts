@@ -36,7 +36,7 @@ export interface RoomState {
   roomId: string;
   players: ({ name: string, seatIndex: number, isReady: boolean } | null)[];
   gameMode?: GameMode;
-  spectators?: string[];
+  spectators?: { name: string, watchSeat: number }[];
 }
 
 export function useGame() {

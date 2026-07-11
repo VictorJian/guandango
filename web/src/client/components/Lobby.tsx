@@ -18,7 +18,7 @@ interface Props {
 
 export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) => {
   const [name, setName] = useState('');
-  const [roomId, setRoomId] = useState('default');
+  const [roomId, setRoomId] = useState('三重夢想家 1');
   const [showRoomList, setShowRoomList] = useState(false);
 
   // Fetch room list on mount and periodically
@@ -47,7 +47,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-[#1e1e1e] text-gray-300 p-4">
-      <h1 className="text-5xl font-bold mb-8 text-[#519aba] font-mono">VS Code - 摜蛋</h1>
+      <h1 className="text-5xl font-bold mb-8 text-[#519aba] font-mono">熱活 - 摜蛋</h1>
       
       <div className="flex gap-6 items-start">
         {/* Join Form */}
@@ -71,7 +71,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
               value={roomId}
               onChange={e => setRoomId(e.target.value)}
               className="w-full bg-[#3c3c3c] border border-[#3c3c3c] p-2 rounded text-white focus:outline-none focus:border-[#007acc]"
-              placeholder="預設: default"
+              placeholder="預設: 三重夢想家 1"
             />
           </div>
           <button 

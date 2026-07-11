@@ -404,9 +404,14 @@ export const GameTable: React.FC<Props> = ({
       );
   };
 
+  // 觀看指定座位的觀戰者名單
+  const watchersOf = (seat: number) =>
+      (roomState.spectators ?? []).filter(s => s.watchSeat === seat).map(s => s.name);
+
   const PlayerArea = ({ data, pos }: { data: any, pos: string }) => {
     const action = gameState?.roundActions?.[data.seat];
     const bubble = chatBubbles[data.seat];
+    const watchers = watchersOf(data.seat);
     
     // Get winner position (第一名、第二名、第三名、第四名)
     const getWinnerPosition = () => {
@@ -460,6 +465,11 @@ export const GameTable: React.FC<Props> = ({
          </div>
          {gameState && <div className="text-yellow-400">張數: {data.handCount}</div>}
          {data.player && data.player.isReady && !gameState && <div className="text-green-400 text-sm">Ready</div>}
+         {watchers.length > 0 && (
+             <div className="text-purple-400 text-xs mt-1 max-w-32 text-center">
+                 👁 {watchers.join('、')} 觀看中
+             </div>
+         )}
          
          {/* Show current round action */}
          {gameState && action && (
@@ -604,8 +614,23 @@ export const GameTable: React.FC<Props> = ({
 
       {gameState && (
           <div className="absolute top-4 left-4 flex flex-col gap-2 items-start z-50">
-              <div className="text-[#d4d4d4] font-bold text-xl bg-[#252526] border border-[#333333] px-4 py-2 rounded shadow-lg">
-                  <span className="text-[#569cd6]">const</span> <span className="text-[#9cdcfe]">Level</span> = <span className="text-[#b5cea8]">{gameState.level}</span>;
+              <div className="bg-[#252526] border border-[#333333] px-4 py-2 rounded shadow-lg flex flex-col gap-1">
+                  {gameState.teamLevels && (
+                      <div className="text-sm flex flex-col gap-0.5">
+                          {[0, 1].map(team => {
+                              const members = roomState.players
+                                  .filter(p => p && p.seatIndex % 2 === team)
+                                  .map(p => p!.name)
+                                  .join('、') || `隊伍${team}`;
+                              const isActive = gameState.activeTeam === team;
+                              return (
+                                  <div key={team} className={isActive ? 'text-yellow-400 font-bold' : 'text-gray-400'}>
+                                      {members}：{gameState.teamLevels![team]} 階 {isActive && '（目前等級）'}
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  )}
               </div>
               
               {/* Host Force End Button */}
@@ -771,8 +796,11 @@ export const GameTable: React.FC<Props> = ({
               </div>
             </div>
           )}
-          <div className="text-white font-bold mt-2">
-            {me.player?.name} {isSpectator ? <span className="text-purple-400">(觀戰中)</span> : '(Me)'}
+          <div className="text-white font-bold mt-2 flex items-center gap-2">
+            <span>{me.player?.name} {isSpectator ? <span className="text-purple-400">(觀戰中)</span> : '(Me)'}</span>
+            {watchersOf(mySeat).length > 0 && (
+                <span className="text-purple-400 text-xs font-normal">👁 {watchersOf(mySeat).join('、')} 觀看中</span>
+            )}
           </div>
         </div>
       </div>
@@ -859,7 +887,7 @@ export const GameTable: React.FC<Props> = ({
       {gameState && (
           <button
               onClick={() => setShowHistory(true)}
-              className="fixed top-4 right-4 z-40 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg font-medium transition flex items-center gap-2"
+              className="fixed top-4 right-80 z-40 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg font-medium transition flex items-center gap-2"
               title="查看遊戲歷史紀錄"
           >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
