@@ -112,11 +112,11 @@ export const GameTable: React.FC<Props> = ({
   const getPlayerAt = (offset: number) => {
     const seat = (mySeat + offset) % 4;
     const player = roomState.players.find(p => p && p.seatIndex === seat);
-    const handCount = gameState ? (
-      seat === mySeat 
-        ? (gameState.hands[seat] as CardType[]).length 
-        : (gameState.hands[seat] as number)
-    ) : 0;
+    // hands[seat] 可能是牌陣列（自己/被觀看者）或張數數字（其他人）。
+    // 觀戰切換視角時會有一瞬間座位與 gameState 不同步，必須兩種形態都能處理，
+    // 否則把牌陣列當數字渲染會讓 React 整頁崩潰。
+    const rawHand = gameState ? gameState.hands[seat] : 0;
+    const handCount = Array.isArray(rawHand) ? rawHand.length : (rawHand ?? 0);
     
     // Team identification
     const isTeammate = (mySeat + 2) % 4 === seat;
@@ -130,7 +130,8 @@ export const GameTable: React.FC<Props> = ({
   const right = getPlayerAt(1);
   const me = getPlayerAt(0);
 
-  const myHandOriginal = gameState ? (gameState.hands[mySeat] as CardType[]) : [];
+  const myHandRaw = gameState ? gameState.hands[mySeat] : [];
+  const myHandOriginal: CardType[] = Array.isArray(myHandRaw) ? myHandRaw : [];
   const [sortedHand, setSortedHand] = useState<CardType[]>([]);
   const [straightFlushIds, setStraightFlushIds] = useState<Set<string>>(new Set());
 
@@ -625,14 +626,31 @@ export const GameTable: React.FC<Props> = ({
                               const isActive = gameState.activeTeam === team;
                               return (
                                   <div key={team} className={isActive ? 'text-yellow-400 font-bold' : 'text-gray-400'}>
-                                      {members}：{gameState.teamLevels![team]} 階 {isActive && '（目前等級）'}
+                                      {members}：{gameState.teamLevels![team]}階{isActive && '（目前等級）'}
                                   </div>
                               );
                           })}
                       </div>
                   )}
               </div>
-              
+
+              {/* History Button — below the level panel */}
+              <button
+                  onClick={() => setShowHistory(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg font-medium transition flex items-center gap-2"
+                  title="查看遊戲歷史紀錄"
+              >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  歷史紀錄
+                  {gameState.history && gameState.history.length > 0 && (
+                      <span className="bg-red-500 text-xs px-2 py-0.5 rounded-full">
+                          {gameState.history.length}
+                      </span>
+                  )}
+              </button>
+
               {/* Host Force End Button */}
               {!isSpectator && me.player && me.player.seatIndex === 0 && (
                 <button 
@@ -883,24 +901,6 @@ export const GameTable: React.FC<Props> = ({
           />
       )}
       
-      {/* History Button (floating) */}
-      {gameState && (
-          <button
-              onClick={() => setShowHistory(true)}
-              className="fixed top-4 right-80 z-40 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg font-medium transition flex items-center gap-2"
-              title="查看遊戲歷史紀錄"
-          >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              歷史紀錄
-              {gameState.history && gameState.history.length > 0 && (
-                  <span className="bg-red-500 text-xs px-2 py-0.5 rounded-full">
-                      {gameState.history.length}
-                  </span>
-              )}
-          </button>
-      )}
     </div>
   );
 };
