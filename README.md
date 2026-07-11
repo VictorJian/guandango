@@ -1,6 +1,6 @@
 # GuanDanGo — 摜蛋 4 人連線遊戲（Go 版）
 
-從 GuanDanInOffice（Node.js + Socket.IO）移植的 Go 後端版本。
+從 [GuanDanInOffice](../GuanDanInOffice)（Node.js + Socket.IO）移植的 Go 後端版本。
 前端沿用原本的 React UI，連線層改為原生 WebSocket。
 
 ## 目前範圍
