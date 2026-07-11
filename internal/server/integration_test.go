@@ -35,9 +35,61 @@ func newTestRoom(t *testing.T) *Room {
 	return room
 }
 
+// driveTribute pays the largest card for the first pending tribute.
+func driveTribute(g *Game) {
+	for _, tr := range g.tributeState.PendingTributes {
+		if tr.Card == nil {
+			largest := game.GetLargestCard(g.hands[tr.From], g.level)
+			g.handleTribute(tr.From, []game.Card{largest})
+			return
+		}
+	}
+}
+
+// driveReturnTribute returns the smallest eligible card (rank <= 10 and not
+// the level card), or the smallest card overall if none qualify.
+func driveReturnTribute(g *Game) {
+	for _, ret := range g.tributeState.PendingReturns {
+		if ret.Card == nil {
+			hand := g.hands[ret.From]
+			pick := hand[len(hand)-1]
+			for i := len(hand) - 1; i >= 0; i-- {
+				if hand[i].Rank <= 10 && int(hand[i].Rank) != g.level {
+					pick = hand[i]
+					break
+				}
+			}
+			g.handleReturnTribute(ret.From, []game.Card{pick})
+			return
+		}
+	}
+}
+
+// drivePlaying plays the smallest single on a free turn, beats singles when
+// possible, otherwise passes.
+func drivePlaying(g *Game) {
+	seat := g.currentTurn
+	hand := g.hands[seat]
+	if len(hand) == 0 {
+		return
+	}
+	if g.lastHand == nil {
+		g.handlePlayHand(seat, []game.Card{hand[len(hand)-1]}, nil)
+		return
+	}
+	if g.lastHand.Hand.Type == game.Single {
+		for i := len(hand) - 1; i >= 0; i-- {
+			if game.GetLogicValue(hand[i].Rank, g.level) > g.lastHand.Hand.Value {
+				g.handlePlayHand(seat, []game.Card{hand[i]}, nil)
+				return
+			}
+		}
+	}
+	g.handlePass(seat)
+}
+
 // step performs one action for whoever must act, using a naive but legal
-// strategy: pay largest tribute, return smallest, play smallest single on a
-// free turn, beat singles when possible, otherwise pass.
+// strategy.
 func step(room *Room) {
 	room.withLock(func() {
 		if room.match == nil || room.match.CurrentGame == nil {
@@ -47,44 +99,13 @@ func step(room *Room) {
 
 		switch g.currentPhase {
 		case PhaseTribute:
-			for _, tr := range g.tributeState.PendingTributes {
-				if tr.Card == nil {
-					largest := game.GetLargestCard(g.hands[tr.From], g.level)
-					g.handleTribute(tr.From, []game.Card{largest})
-					return
-				}
-			}
-
+			driveTribute(g)
 		case PhaseReturnTribute:
-			for _, ret := range g.tributeState.PendingReturns {
-				if ret.Card == nil {
-					hand := g.hands[ret.From]
-					smallest := hand[len(hand)-1]
-					g.handleReturnTribute(ret.From, []game.Card{smallest})
-					return
-				}
-			}
-
+			driveReturnTribute(g)
+		case PhaseTributeConfirm:
+			g.handleConfirmStart(g.confirmSeat) // 第四名確認開局
 		case PhasePlaying:
-			seat := g.currentTurn
-			hand := g.hands[seat]
-			if len(hand) == 0 {
-				return
-			}
-			if g.lastHand == nil {
-				// Free turn: play smallest card
-				g.handlePlayHand(seat, []game.Card{hand[len(hand)-1]}, nil)
-				return
-			}
-			if g.lastHand.Hand.Type == game.Single {
-				for i := len(hand) - 1; i >= 0; i-- {
-					if game.GetLogicValue(hand[i].Rank, g.level) > g.lastHand.Hand.Value {
-						g.handlePlayHand(seat, []game.Card{hand[i]}, nil)
-						return
-					}
-				}
-			}
-			g.handlePass(seat)
+			drivePlaying(g)
 		}
 	})
 }
@@ -143,6 +164,119 @@ func TestTributeFlow(t *testing.T) {
 		step(room)
 	}
 	t.Fatal("second game did not start within timeout")
+}
+
+// TestReturnTributeRankLimit verifies the return-tribute rule: cards above
+// rank 10 are rejected while a smaller card is available.
+func TestReturnTributeRankLimit(t *testing.T) {
+	nextGameDelay = time.Millisecond
+	defer func() { nextGameDelay = 3 * time.Second }()
+
+	room := newTestRoom(t)
+
+	// Drive games until a ReturnTribute phase appears, without auto-returning.
+	deadline := time.Now().Add(120 * time.Second)
+	reached := false
+	for time.Now().Before(deadline) && !reached {
+		room.withLock(func() {
+			g := room.match.CurrentGame
+			if g == nil {
+				return
+			}
+			switch g.currentPhase {
+			case PhaseReturnTribute:
+				reached = true
+			case PhaseTribute:
+				driveTribute(g)
+			case PhasePlaying:
+				drivePlaying(g)
+			}
+		})
+	}
+	if !reached {
+		t.Fatal("did not reach ReturnTribute phase within timeout")
+	}
+
+	room.withLock(func() {
+		g := room.match.CurrentGame
+		var ret *TributeEntry
+		for _, r := range g.tributeState.PendingReturns {
+			if r.Card == nil {
+				ret = r
+				break
+			}
+		}
+		if ret == nil {
+			t.Fatal("no pending return found")
+		}
+
+		hand := g.hands[ret.From]
+		eligible := func(c game.Card) bool { return c.Rank <= 10 && int(c.Rank) != g.level }
+		var big, levelCard, small *game.Card
+		for i := range hand {
+			if hand[i].Rank > 10 && big == nil {
+				big = &hand[i]
+			}
+			if int(hand[i].Rank) == g.level && levelCard == nil {
+				levelCard = &hand[i]
+			}
+			if eligible(hand[i]) && small == nil {
+				small = &hand[i]
+			}
+		}
+
+		if big != nil && small != nil {
+			g.handleReturnTribute(ret.From, []game.Card{*big})
+			if ret.Card != nil {
+				t.Error("return with rank > 10 should be rejected while eligible cards remain")
+			}
+		}
+		if levelCard != nil && small != nil {
+			g.handleReturnTribute(ret.From, []game.Card{*levelCard})
+			if ret.Card != nil {
+				t.Error("return with the level card should be rejected while eligible cards remain")
+			}
+		}
+		if small != nil {
+			g.handleReturnTribute(ret.From, []game.Card{*small})
+			if ret.Card == nil {
+				t.Error("valid return (<=10, not level) should be accepted")
+			}
+		}
+	})
+
+	// Complete remaining returns, then verify the 4th-place confirm gate
+	room.withLock(func() {
+		g := room.match.CurrentGame
+		for g.currentPhase == PhaseReturnTribute {
+			driveReturnTribute(g)
+		}
+		if g.currentPhase != PhaseTributeConfirm {
+			t.Fatalf("expected TributeConfirm after returns, got %s", g.currentPhase)
+		}
+
+		// Playing is blocked until confirmation
+		drivePlaying(g)
+		if g.currentPhase != PhaseTributeConfirm {
+			t.Fatal("play should be ignored before confirmation")
+		}
+
+		// Only the previous game's 4th place can confirm
+		wrong := (g.confirmSeat + 1) % 4
+		g.handleConfirmStart(wrong)
+		if g.currentPhase != PhaseTributeConfirm {
+			t.Fatal("non-4th-place confirm should be rejected")
+		}
+
+		g.handleConfirmStart(g.confirmSeat)
+		if g.currentPhase != PhasePlaying {
+			t.Fatalf("expected Playing after 4th-place confirm, got %s", g.currentPhase)
+		}
+		// The confirming 4th-place player leads the new game
+		if g.currentTurn != g.confirmSeat {
+			t.Errorf("expected 4th place (seat %d) to lead, got seat %d", g.confirmSeat, g.currentTurn)
+		}
+	})
 }
 
 type wsClient struct {
@@ -260,4 +394,79 @@ func TestWebSocketFourPlayers(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestSpectatorMode verifies that a 5th client joining a full room becomes a
+// spectator, sees the watched player's hand, and can switch targets.
+func TestSpectatorMode(t *testing.T) {
+	rm := NewRoomManager()
+	srv := httptest.NewServer(http.HandlerFunc(WSHandler(rm)))
+	defer srv.Close()
+
+	players := make([]*wsClient, 4)
+	for i := range players {
+		players[i] = dialWS(t, srv.URL)
+		defer players[i].conn.Close()
+		players[i].waitFor("connected")
+		players[i].send("joinRoom", map[string]any{"playerName": fmt.Sprintf("P%d", i), "roomId": "spec-room"})
+		players[i].waitFor("roomState")
+	}
+
+	// 5th joins the full room -> spectator
+	spec := dialWS(t, srv.URL)
+	defer spec.conn.Close()
+	spec.waitFor("connected")
+	spec.send("joinRoom", map[string]any{"playerName": "Watcher", "roomId": "spec-room"})
+	var sm struct {
+		WatchSeat int `json:"watchSeat"`
+	}
+	if err := json.Unmarshal(spec.waitFor("spectatorMode"), &sm); err != nil {
+		t.Fatalf("bad spectatorMode: %v", err)
+	}
+	if sm.WatchSeat != 0 {
+		t.Errorf("default watch seat should be 0, got %d", sm.WatchSeat)
+	}
+
+	// Everyone readies up -> match starts, spectator receives a spectating gameState
+	for _, p := range players {
+		p.send("ready", nil)
+	}
+
+	type specState struct {
+		Spectating bool  `json:"spectating"`
+		WatchSeat  int   `json:"watchSeat"`
+		Hands      []any `json:"hands"`
+	}
+	var gs specState
+	if err := json.Unmarshal(spec.waitFor("gameState"), &gs); err != nil {
+		t.Fatalf("bad gameState: %v", err)
+	}
+	if !gs.Spectating {
+		t.Error("expected spectating=true in spectator gameState")
+	}
+	if h, ok := gs.Hands[gs.WatchSeat].([]any); !ok || len(h) != 27 {
+		t.Fatalf("expected watched player's 27-card hand at seat %d, got %T", gs.WatchSeat, gs.Hands[gs.WatchSeat])
+	}
+
+	// Switch to watching seat 2
+	spec.send("watchPlayer", 2)
+	switched := false
+	for i := 0; i < 5 && !switched; i++ {
+		var gs2 specState
+		if err := json.Unmarshal(spec.waitFor("gameState"), &gs2); err != nil {
+			t.Fatalf("bad gameState after watchPlayer: %v", err)
+		}
+		if gs2.WatchSeat == 2 {
+			switched = true
+			if h, ok := gs2.Hands[2].([]any); !ok || len(h) != 27 {
+				t.Fatalf("expected seat 2's hand visible after switch, got %T", gs2.Hands[2])
+			}
+		}
+	}
+	if !switched {
+		t.Fatal("watchPlayer(2) did not take effect")
+	}
+
+	// Spectator must not be able to play: no crash expected, state unchanged
+	spec.send("playHand", []any{})
 }

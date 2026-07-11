@@ -32,17 +32,19 @@ export interface Card {
   isWild?: boolean; 
 }
 
+// 牌型值同時是前後端協定值與顯示名稱（台灣用語），
+// 必須與 Go 端 internal/game/types.go 的 HandType 常數保持一致。
 export enum HandType {
-  Single = 'Single',
-  Pair = 'Pair',
-  Trips = 'Trips',
-  TripsWithPair = 'TripsWithPair',
-  Straight = 'Straight',
-  Tube = 'Tube',
-  Plate = 'Plate',
-  Bomb = 'Bomb',
-  StraightFlush = 'StraightFlush',
-  FourKings = 'FourKings'
+  Single = '單張',
+  Pair = '一對',
+  Trips = '三張',
+  TripsWithPair = '葫蘆',
+  Straight = '順子',
+  Tube = '鐵板',
+  Plate = '連對',
+  Bomb = '炸彈',
+  StraightFlush = '同花順',
+  FourKings = '天王炸'
 }
 
 export interface Hand {

@@ -19,6 +19,14 @@ type Player struct {
 	IsDisconnected bool
 }
 
+// Spectator watches the game from one player's perspective (no actions).
+type Spectator struct {
+	ID        string
+	Name      string
+	Client    *Client
+	WatchSeat int // 0-3, whose hand the spectator sees
+}
+
 // RoomManager owns all rooms and routes clients to them.
 type RoomManager struct {
 	mu    sync.Mutex
@@ -103,11 +111,12 @@ func (rm *RoomManager) HandleGetRoomList(c *Client) {
 // Room holds up to 4 seats and at most one running Match.
 // Room.mu serializes everything that touches the room, its match and game.
 type Room struct {
-	ID       string
-	mu       sync.Mutex
-	players  [4]*Player
-	match    *Match
-	gameMode game.GameMode
+	ID         string
+	mu         sync.Mutex
+	players    [4]*Player
+	spectators []*Spectator
+	match      *Match
+	gameMode   game.GameMode
 }
 
 func NewRoom(id string) *Room {
@@ -120,11 +129,16 @@ func (r *Room) withLock(fn func()) {
 	fn()
 }
 
-// Broadcast sends an event to every connected player in the room.
+// Broadcast sends an event to every connected player and spectator in the room.
 func (r *Room) Broadcast(event string, data any) {
 	for _, p := range r.players {
 		if p != nil && p.Client != nil {
 			p.Client.Emit(event, data)
+		}
+	}
+	for _, sp := range r.spectators {
+		if sp.Client != nil {
+			sp.Client.Emit(event, data)
 		}
 	}
 }
@@ -160,7 +174,8 @@ func (r *Room) addPlayer(c *Client, name string) {
 		}
 	}
 	if seatIndex == -1 {
-		c.Emit("error", "Room is full")
+		// 房間已滿：改以觀戰模式加入
+		r.addSpectator(c, name)
 		return
 	}
 
@@ -173,6 +188,51 @@ func (r *Room) addPlayer(c *Client, name string) {
 
 	r.bindSocketListeners(c)
 	r.broadcastState()
+}
+
+// addSpectator joins a client as a spectator (room already full).
+func (r *Room) addSpectator(c *Client, name string) {
+	sp := &Spectator{ID: c.ID, Name: name, Client: c, WatchSeat: 0}
+	r.spectators = append(r.spectators, sp)
+	r.bindSpectatorListeners(c, sp)
+
+	c.Emit("spectatorMode", map[string]any{"watchSeat": sp.WatchSeat})
+	r.Broadcast("error", fmt.Sprintf("%s 以觀戰模式加入", name))
+	r.broadcastState()
+
+	if r.match != nil && r.match.CurrentGame != nil {
+		r.match.CurrentGame.SendStateToSpectator(sp)
+	}
+}
+
+func (r *Room) bindSpectatorListeners(c *Client, sp *Spectator) {
+	c.On("watchPlayer", func(data json.RawMessage) {
+		var seat int
+		if json.Unmarshal(data, &seat) != nil || seat < 0 || seat > 3 {
+			return
+		}
+		r.withLock(func() {
+			sp.WatchSeat = seat
+			c.Emit("spectatorMode", map[string]any{"watchSeat": seat})
+			if r.match != nil && r.match.CurrentGame != nil {
+				r.match.CurrentGame.SendStateToSpectator(sp)
+			}
+		})
+	})
+	c.On("chatMessage", func(data json.RawMessage) {
+		var msg string
+		if json.Unmarshal(data, &msg) != nil {
+			return
+		}
+		r.withLock(func() {
+			r.Broadcast("chatMessage", map[string]any{
+				"sender":    sp.Name + "（觀戰）",
+				"text":      msg,
+				"time":      time.Now().Format("15:04:05"),
+				"seatIndex": -1,
+			})
+		})
+	})
 }
 
 func (r *Room) bindSocketListeners(c *Client) {
@@ -291,6 +351,16 @@ func (r *Room) getSeat(c *Client) int {
 }
 
 func (r *Room) handleDisconnect(c *Client) {
+	// Spectator disconnect: just remove from the list
+	for i, sp := range r.spectators {
+		if sp.ID == c.ID {
+			r.spectators = append(r.spectators[:i], r.spectators[i+1:]...)
+			r.Broadcast("error", fmt.Sprintf("%s 離開觀戰", sp.Name))
+			r.broadcastState()
+			return
+		}
+	}
+
 	for i, p := range r.players {
 		if p == nil || p.ID != c.ID {
 			continue
@@ -379,9 +449,14 @@ func (r *Room) broadcastState() {
 			"isBot":     false,
 		}
 	}
+	spectatorNames := make([]string, 0, len(r.spectators))
+	for _, sp := range r.spectators {
+		spectatorNames = append(spectatorNames, sp.Name)
+	}
 	r.Broadcast("roomState", map[string]any{
-		"roomId":   r.ID,
-		"players":  playerList,
-		"gameMode": r.gameMode,
+		"roomId":     r.ID,
+		"players":    playerList,
+		"gameMode":   r.gameMode,
+		"spectators": spectatorNames,
 	})
 }

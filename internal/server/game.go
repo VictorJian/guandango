@@ -15,12 +15,13 @@ var nextGameDelay = 3 * time.Second
 type GamePhase string
 
 const (
-	PhaseWaiting       GamePhase = "Waiting"
-	PhaseDealing       GamePhase = "Dealing"
-	PhaseTribute       GamePhase = "Tribute"
-	PhaseReturnTribute GamePhase = "ReturnTribute"
-	PhasePlaying       GamePhase = "Playing"
-	PhaseScore         GamePhase = "Score"
+	PhaseWaiting        GamePhase = "Waiting"
+	PhaseDealing        GamePhase = "Dealing"
+	PhaseTribute        GamePhase = "Tribute"
+	PhaseReturnTribute  GamePhase = "ReturnTribute"
+	PhaseTributeConfirm GamePhase = "TributeConfirm" // 貢牌完成，等待上局第四名確認開局
+	PhasePlaying        GamePhase = "Playing"
+	PhaseScore          GamePhase = "Score"
 )
 
 type TributeEntry struct {
@@ -30,9 +31,10 @@ type TributeEntry struct {
 }
 
 type TributeState struct {
-	PendingTributes []*TributeEntry `json:"pendingTributes"`
-	PendingReturns  []*TributeEntry `json:"pendingReturns"`
-	NextStartPlayer *int            `json:"nextStartPlayer,omitempty"`
+	PendingTributes   []*TributeEntry `json:"pendingTributes"`
+	PendingReturns    []*TributeEntry `json:"pendingReturns"`
+	CompletedTributes []*TributeEntry `json:"completedTributes,omitempty"` // 已完成的進貢（供畫面顯示）
+	NextStartPlayer   *int            `json:"nextStartPlayer,omitempty"`
 }
 
 type RoundAction struct {
@@ -69,6 +71,7 @@ type Game struct {
 
 	winners      []int
 	tributeState TributeState
+	confirmSeat  int // 上一局第四名，負責在貢牌完成後按下確認
 
 	teamLevels  map[int]int // Team 0 (seats 0,2), Team 1 (seats 1,3)
 	activeTeam  int
@@ -90,6 +93,7 @@ func NewGame(room *Room, players []*Player) *Game {
 		winners:      []int{},
 		teamLevels:   map[int]int{0: 2, 1: 2},
 		history:      []game.HistoryEntry{},
+		confirmSeat:  -1,
 	}
 	for _, p := range players {
 		if p.Client != nil {
@@ -142,6 +146,9 @@ func (g *Game) bindPlayerListeners(p *Player) {
 		}
 		g.room.withLock(func() { g.handleReturnTribute(seat, cards) })
 	})
+	c.On("confirmStart", func(json.RawMessage) {
+		g.room.withLock(func() { g.handleConfirmStart(seat) })
+	})
 }
 
 func (g *Game) registerTimer(d time.Duration, fn func()) {
@@ -166,7 +173,7 @@ func (g *Game) Destroy() {
 
 	for _, p := range g.players {
 		if p.Client != nil {
-			p.Client.Off("playHand", "pass", "tribute", "returnTribute")
+			p.Client.Off("playHand", "pass", "tribute", "returnTribute", "confirmStart")
 		}
 	}
 }
@@ -198,9 +205,9 @@ func cardDescription(cards []game.Card) string {
 		var rankName string
 		switch c.Rank {
 		case 15:
-			rankName = "小王"
+			rankName = "黑鬼"
 		case 16:
-			rankName = "大王"
+			rankName = "紅鬼"
 		case 11:
 			rankName = "J"
 		case 12:
@@ -236,9 +243,9 @@ func (g *Game) Start() {
 
 	g.level = g.teamLevels[g.activeTeam]
 
-	teamName := "Team 0 (Seat 0, 2)"
+	teamName := "隊伍0（座位0、2）"
 	if g.activeTeam == 1 {
-		teamName = "Team 1 (Seat 1, 3)"
+		teamName = "隊伍1（座位1、3）"
 	}
 	g.addHistoryEntry(game.HistGameStart,
 		fmt.Sprintf("第%d局開始 - 目前等級: %d - 莊家: %s", g.currentRound, g.level, teamName),
@@ -281,6 +288,7 @@ func (g *Game) initTributePhase() {
 	p3, p4 := g.prevWinners[2], g.prevWinners[3]
 
 	g.tributeState = TributeState{PendingTributes: []*TributeEntry{}, PendingReturns: []*TributeEntry{}}
+	g.confirmSeat = p4 // 上一局第四名負責確認開局
 
 	var losingTeam []int
 	isDouble := false
@@ -310,7 +318,7 @@ func (g *Game) initTributePhase() {
 	if bigJokerCount == 2 {
 		g.currentPhase = PhasePlaying
 		g.currentTurn = p1
-		g.room.Broadcast("error", "抗貢成功！雙大王在手，免除進貢！")
+		g.room.Broadcast("error", "抗貢成功！雙紅鬼在手，免除進貢！")
 		return
 	}
 
@@ -409,6 +417,8 @@ func (g *Game) handleTribute(seatIndex int, cards []game.Card) {
 			g.tributeState.PendingReturns = append(g.tributeState.PendingReturns,
 				&TributeEntry{From: t.To, To: t.From})
 		}
+		// 保留已完成的進貢供畫面顯示
+		g.tributeState.CompletedTributes = g.tributeState.PendingTributes
 		g.tributeState.PendingTributes = []*TributeEntry{}
 	}
 	g.broadcastGameState()
@@ -428,6 +438,41 @@ func (g *Game) handleReturnTribute(seatIndex int, cards []game.Card) {
 	}
 	if ret == nil {
 		return
+	}
+
+	// 還貢的牌必須是自己手上的牌
+	owned := false
+	for _, c := range g.hands[seatIndex] {
+		if c.ID == cards[0].ID {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		g.emitError(seatIndex, "你沒有這張牌")
+		return
+	}
+
+	// 還貢限制：不可大於10、不可是當前等級的牌（除非手上完全沒有合規的牌）
+	isEligible := func(c game.Card) bool {
+		return c.Rank <= 10 && int(c.Rank) != g.level
+	}
+	if !isEligible(cards[0]) {
+		hasEligible := false
+		for _, c := range g.hands[seatIndex] {
+			if isEligible(c) {
+				hasEligible = true
+				break
+			}
+		}
+		if hasEligible {
+			if int(cards[0].Rank) == g.level {
+				g.emitError(seatIndex, "還貢的牌不能是當前等級的牌")
+			} else {
+				g.emitError(seatIndex, "還貢的牌不能大於10")
+			}
+			return
+		}
 	}
 
 	cc := cards[0]
@@ -451,13 +496,32 @@ func (g *Game) checkReturnDone() {
 			return
 		}
 	}
-	g.currentPhase = PhasePlaying
-	if g.tributeState.NextStartPlayer != nil {
-		g.currentTurn = *g.tributeState.NextStartPlayer
-	} else if len(g.prevWinners) > 0 {
-		g.currentTurn = g.prevWinners[0]
+	// 貢牌交換完成：等待上一局第四名確認後才開始出牌
+	g.currentPhase = PhaseTributeConfirm
+	g.broadcastGameState()
+}
+
+// handleConfirmStart is triggered by the previous game's 4th-place player to
+// actually start the new game after the tribute exchange.
+func (g *Game) handleConfirmStart(seatIndex int) {
+	if g.currentPhase != PhaseTributeConfirm {
+		return
 	}
+	if seatIndex != g.confirmSeat {
+		g.emitError(seatIndex, "只有上一局第四名可以確認開始")
+		return
+	}
+
+	g.currentPhase = PhasePlaying
+	// 確認開局的第四名同時是該局的先手
+	g.currentTurn = g.confirmSeat
 	g.tributeState = TributeState{PendingTributes: []*TributeEntry{}, PendingReturns: []*TributeEntry{}}
+
+	seat := seatIndex
+	g.addHistoryEntry(game.HistPhaseChange,
+		fmt.Sprintf("%s 確認開始，新一局開打，由其先出牌！", g.players[seatIndex].Name),
+		&seat, nil)
+
 	g.broadcastGameState()
 }
 
@@ -523,15 +587,8 @@ func (g *Game) handlePlayHand(seatIndex int, cards []game.Card, providedHandType
 		seatIndex: {Type: "play", Cards: cards, Hand: hand},
 	}
 
-	handTypeNames := map[game.HandType]string{
-		game.Single: "單牌", game.Pair: "對子", game.Trips: "三張", game.TripsWithPair: "三帶二",
-		game.Straight: "順子", game.Tube: "鋼板", game.Plate: "連對",
-		game.Bomb: "炸彈", game.StraightFlush: "同花順", game.FourKings: "四大天王",
-	}
-	handTypeName := handTypeNames[hand.Type]
-	if handTypeName == "" {
-		handTypeName = string(hand.Type)
-	}
+	// HandType 的值本身就是中文名稱，直接用於歷史紀錄
+	handTypeName := string(hand.Type)
 	seat := seatIndex
 	g.addHistoryEntry(game.HistPlay,
 		fmt.Sprintf("%s 出牌: %s (%s)", g.players[seatIndex].Name, handTypeName, cardDescription(cards)),
@@ -547,17 +604,8 @@ func (g *Game) handlePlayHand(seatIndex int, cards []game.Card, providedHandType
 			&seat,
 			map[string]any{"position": len(g.winners)})
 
-		// Double win: first two winners on the same team ends the game immediately
-		if len(g.winners) == 2 && sameTeam(g.winners[0], g.winners[1]) {
-			for i := 0; i < 4; i++ {
-				if !contains(g.winners, i) {
-					g.winners = append(g.winners, i)
-				}
-			}
-			g.endGame()
-			return
-		}
-
+		// 名次要實際打出來：即使前兩名同隊（雙下）也繼續打，
+		// 直到第三名出完牌，剩下的一位即為第四名
 		if len(g.winners) == 3 {
 			for i := 0; i < 4; i++ {
 				if !contains(g.winners, i) {
@@ -667,13 +715,13 @@ func (g *Game) endGame() {
 	var resultType string
 	switch {
 	case g.winners[0]%2 == 0 && g.winners[1]%2 == 0:
-		resultType = "Team 0 雙扣！"
+		resultType = "隊伍0 雙扣！"
 	case g.winners[0]%2 == 1 && g.winners[1]%2 == 1:
-		resultType = "Team 1 雙扣！"
+		resultType = "隊伍1 雙扣！"
 	case g.winners[0]%2 == g.winners[2]%2:
-		resultType = fmt.Sprintf("Team %d 單扣", g.winners[0]%2)
+		resultType = fmt.Sprintf("隊伍%d 單扣", g.winners[0]%2)
 	default:
-		resultType = fmt.Sprintf("Team %d 保級", g.winners[0]%2)
+		resultType = fmt.Sprintf("隊伍%d 保級", g.winners[0]%2)
 	}
 
 	g.addHistoryEntry(game.HistGameEnd,
@@ -723,6 +771,11 @@ type gameStatePayload struct {
 	GameMode     game.GameMode       `json:"gameMode"`
 	History      []game.HistoryEntry `json:"history"`
 	CurrentRound int                 `json:"currentRound"`
+	// 觀戰模式：以 watchSeat 玩家的視角觀看，不可操作
+	Spectating bool `json:"spectating,omitempty"`
+	WatchSeat  *int `json:"watchSeat,omitempty"`
+	// 貢牌完成後，負責確認開局的座位（上一局第四名）
+	ConfirmSeat *int `json:"confirmSeat,omitempty"`
 }
 
 func (g *Game) stateFor(idx int) gameStatePayload {
@@ -740,8 +793,13 @@ func (g *Game) stateFor(idx int) gameStatePayload {
 	}
 
 	var tribute *TributeState
-	if g.currentPhase == PhaseTribute || g.currentPhase == PhaseReturnTribute {
+	var confirmSeat *int
+	if g.currentPhase == PhaseTribute || g.currentPhase == PhaseReturnTribute || g.currentPhase == PhaseTributeConfirm {
 		tribute = &g.tributeState
+		if g.confirmSeat >= 0 {
+			cs := g.confirmSeat
+			confirmSeat = &cs
+		}
 	}
 
 	winners := g.winners
@@ -762,6 +820,7 @@ func (g *Game) stateFor(idx int) gameStatePayload {
 		RoundActions: g.roundActions,
 		Winners:      winners,
 		TributeState: tribute,
+		ConfirmSeat:  confirmSeat,
 		TeamLevels:   g.teamLevels,
 		ActiveTeam:   g.activeTeam,
 		GameMode:     game.ModeNormal,
@@ -778,11 +837,26 @@ func (g *Game) SendStateTo(p *Player) {
 	p.Client.Emit("gameState", g.stateFor(p.SeatIndex))
 }
 
+// SendStateToSpectator sends the game state from the watched player's perspective.
+func (g *Game) SendStateToSpectator(sp *Spectator) {
+	if sp.Client == nil {
+		return
+	}
+	st := g.stateFor(sp.WatchSeat)
+	st.Spectating = true
+	seat := sp.WatchSeat
+	st.WatchSeat = &seat
+	sp.Client.Emit("gameState", st)
+}
+
 func (g *Game) broadcastGameState() {
 	for idx, p := range g.players {
 		if p.Client == nil {
 			continue
 		}
 		p.Client.Emit("gameState", g.stateFor(idx))
+	}
+	for _, sp := range g.room.spectators {
+		g.SendStateToSpectator(sp)
 	}
 }

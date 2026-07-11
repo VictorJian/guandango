@@ -31,17 +31,19 @@ type Card struct {
 
 type HandType string
 
+// 牌型值同時是前後端協定值與顯示名稱（台灣用語），
+// 前端 web/src/shared/types.ts 的 HandType enum 必須保持一致。
 const (
-	Single        HandType = "Single"
-	Pair          HandType = "Pair"
-	Trips         HandType = "Trips"
-	TripsWithPair HandType = "TripsWithPair"
-	Straight      HandType = "Straight"
-	Tube          HandType = "Tube"
-	Plate         HandType = "Plate"
-	Bomb          HandType = "Bomb"
-	StraightFlush HandType = "StraightFlush"
-	FourKings     HandType = "FourKings"
+	Single        HandType = "單張"
+	Pair          HandType = "一對"
+	Trips         HandType = "三張"
+	TripsWithPair HandType = "葫蘆"
+	Straight      HandType = "順子"
+	Tube          HandType = "鐵板"
+	Plate         HandType = "連對"
+	Bomb          HandType = "炸彈"
+	StraightFlush HandType = "同花順"
+	FourKings     HandType = "天王炸"
 )
 
 type Hand struct {

@@ -13,7 +13,9 @@ export interface GameState {
   tributeState?: {
       pendingTributes: { from: number, to: number, card?: any }[];
       pendingReturns: { from: number, to: number, card?: any }[];
+      completedTributes?: { from: number, to: number, card?: any }[];
   };
+  confirmSeat?: number;
   teamLevels?: { [key: number]: number };
   activeTeam?: number;
   // Skill mode fields
@@ -25,12 +27,16 @@ export interface GameState {
   // Game history
   history?: HistoryEntry[];
   currentRound?: number;
+  // 觀戰模式
+  spectating?: boolean;
+  watchSeat?: number;
 }
 
 export interface RoomState {
   roomId: string;
   players: ({ name: string, seatIndex: number, isReady: boolean } | null)[];
   gameMode?: GameMode;
+  spectators?: string[];
 }
 
 export function useGame() {
@@ -38,6 +44,7 @@ export function useGame() {
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [mySeat, setMySeat] = useState<number>(-1);
+  const [isSpectator, setIsSpectator] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<{sender: string, text: string, time: string, seatIndex: number}[]>([]);
   const [roomList, setRoomList] = useState<Array<{
@@ -66,6 +73,18 @@ export function useGame() {
     socket.on('gameState', (state: GameState) => {
       console.log(`[Client] Received gameState: currentTurn=${state.currentTurn}, phase=${state.phase}, mySeat will compare with ${state.currentTurn}`);
       setGameState(state);
+      // 觀戰模式：以被觀看玩家的座位當作視角
+      if (state.spectating && typeof state.watchSeat === 'number') {
+        setIsSpectator(true);
+        setMySeat(state.watchSeat);
+      }
+    });
+
+    socket.on('spectatorMode', (data: { watchSeat: number }) => {
+      console.log(`[Client] Spectator mode, watching seat ${data.watchSeat}`);
+      setIsSpectator(true);
+      setInRoom(true);
+      setMySeat(data.watchSeat);
     });
 
     socket.on('error', (msg: string) => {
@@ -99,6 +118,7 @@ export function useGame() {
     return () => {
       socket.off('roomState');
       socket.off('gameState');
+      socket.off('spectatorMode');
       socket.off('error');
       socket.off('gameOver');
       socket.off('gameTerminated');
@@ -158,15 +178,24 @@ export function useGame() {
       socket.emit('getRoomList');
   }
 
+  const watchPlayer = (seat: number) => {
+      socket.emit('watchPlayer', seat);
+  }
+
+  const confirmStart = () => {
+      socket.emit('confirmStart');
+  }
+
   return {
     inRoom,
     roomState,
     gameState,
     mySeat,
     setMySeat,
+    isSpectator,
     error,
     chatMessages,
     roomList,
-    actions: { joinRoom, setReady, playHand, passTurn, startGame, payTribute, returnTribute, sendChat, switchSeat, setGameMode, useSkill, forceEndGame, fetchRoomList }
+    actions: { joinRoom, setReady, playHand, passTurn, startGame, payTribute, returnTribute, sendChat, switchSeat, setGameMode, useSkill, forceEndGame, fetchRoomList, watchPlayer, confirmStart }
   };
 }

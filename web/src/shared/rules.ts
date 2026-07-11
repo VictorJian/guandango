@@ -233,20 +233,8 @@ export function getLargestCard(cards: Card[], level: number): Card {
  * Generate human-readable description for a hand type
  */
 export function getHandDescription(hand: Hand, level: number): string {
-    const typeNames: { [key in HandType]: string } = {
-        [HandType.Single]: '單張',
-        [HandType.Pair]: '對子',
-        [HandType.Trips]: '三張',
-        [HandType.TripsWithPair]: '三帶二',
-        [HandType.Straight]: '順子',
-        [HandType.Tube]: '鋼板',
-        [HandType.Plate]: '木板',
-        [HandType.Bomb]: '炸彈',
-        [HandType.StraightFlush]: '同花順',
-        [HandType.FourKings]: '天王炸'
-    };
-    
-    let desc = typeNames[hand.type] || hand.type;
+    // HandType 的值本身就是中文名稱
+    let desc: string = hand.type;
     
     // Add value information for clarity
     if (hand.type === HandType.Bomb) {

@@ -5,15 +5,16 @@ import { GameTable } from './components/GameTable';
 import { FakeIDE } from './components/FakeIDE';
 
 function App() {
-  const { 
-    inRoom, 
-    roomState, 
-    gameState, 
-    mySeat, 
+  const {
+    inRoom,
+    roomState,
+    gameState,
+    mySeat,
+    isSpectator,
     error,
     chatMessages,
     roomList,
-    actions 
+    actions
   } = useGame();
   
   const [showFakeIDE, setShowFakeIDE] = useState(false);
@@ -62,6 +63,9 @@ function App() {
               onSetGameMode={actions.setGameMode}
               onUseSkill={actions.useSkill}
               onForceEndGame={actions.forceEndGame}
+              isSpectator={isSpectator}
+              onWatchPlayer={actions.watchPlayer}
+              onConfirmStart={actions.confirmStart}
             />
         )
       )}
