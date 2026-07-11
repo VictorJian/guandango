@@ -18,7 +18,7 @@ import (
 // driven directly, simulating 4 human players.
 func newTestRoom(t *testing.T) *Room {
 	t.Helper()
-	room := NewRoom("engine-test")
+	room := NewRoom("engine-test", nil)
 	room.withLock(func() {
 		for i := 0; i < 4; i++ {
 			room.players[i] = &Player{
@@ -527,4 +527,46 @@ func TestSameNameTakeover(t *testing.T) {
 	if rs2.Players[0] == nil || !rs2.Players[0].IsReady {
 		t.Error("ready from the new connection should take effect")
 	}
+}
+
+// TestEmptyRoomCleanup verifies that a room disappears from the room list
+// once every player has left (no match running).
+func TestEmptyRoomCleanup(t *testing.T) {
+	rm := NewRoomManager()
+	srv := httptest.NewServer(http.HandlerFunc(WSHandler(rm)))
+	defer srv.Close()
+
+	// A joins a room, then leaves
+	a := dialWS(t, srv.URL)
+	a.waitFor("connected")
+	a.send("joinRoom", map[string]any{"playerName": "Ghost", "roomId": "empty-room"})
+	a.waitFor("roomState")
+	a.conn.Close()
+
+	// B polls the room list until "empty-room" is gone
+	b := dialWS(t, srv.URL)
+	defer b.conn.Close()
+	b.waitFor("connected")
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		b.send("getRoomList", nil)
+		var list []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(b.waitFor("roomList"), &list); err != nil {
+			t.Fatalf("bad roomList: %v", err)
+		}
+		found := false
+		for _, r := range list {
+			if r.ID == "empty-room" {
+				found = true
+			}
+		}
+		if !found {
+			return // room cleaned up
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("empty room was not cleaned up")
 }

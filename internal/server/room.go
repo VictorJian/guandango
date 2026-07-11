@@ -27,6 +27,9 @@ type Spectator struct {
 	WatchSeat int // 0-3, whose hand the spectator sees
 }
 
+// 對局中所有玩家都離線後，保留房間等待重連的時間
+var abandonTimeout = 2 * time.Minute
+
 // RoomManager owns all rooms and routes clients to them.
 type RoomManager struct {
 	mu    sync.Mutex
@@ -44,12 +47,19 @@ func (rm *RoomManager) JoinRoom(c *Client, playerName, roomID string) {
 	rm.mu.Lock()
 	room, ok := rm.rooms[roomID]
 	if !ok {
-		room = NewRoom(roomID)
+		room = NewRoom(roomID, rm)
 		rm.rooms[roomID] = room
 	}
 	rm.mu.Unlock()
 
 	room.withLock(func() { room.addPlayer(c, playerName) })
+}
+
+func (rm *RoomManager) removeRoom(id string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	delete(rm.rooms, id)
+	log.Printf("[RoomManager] Room %s closed (empty)", id)
 }
 
 func (rm *RoomManager) HandleDisconnect(c *Client) {
@@ -113,14 +123,16 @@ func (rm *RoomManager) HandleGetRoomList(c *Client) {
 type Room struct {
 	ID         string
 	mu         sync.Mutex
+	manager    *RoomManager // 用於空房自動關閉；測試可為 nil
 	players    [4]*Player
 	spectators []*Spectator
 	match      *Match
 	gameMode   game.GameMode
+	emptyTimer *time.Timer // 對局中全員離線的等待重連計時器
 }
 
-func NewRoom(id string) *Room {
-	return &Room{ID: id, gameMode: game.ModeNormal}
+func NewRoom(id string, rm *RoomManager) *Room {
+	return &Room{ID: id, manager: rm, gameMode: game.ModeNormal}
 }
 
 func (r *Room) withLock(fn func()) {
@@ -147,6 +159,12 @@ func (r *Room) addPlayer(c *Client, name string) {
 	// 同名玩家重新加入：直接接管原座位。
 	// 不能只認 IsDisconnected —— 手機休眠斷線後，伺服器要到 ping 逾時（約60秒）
 	// 才會發現舊連線已死，這段期間玩家重連必須立刻拿回自己的位子。
+	// 有人（重新）加入就取消「全員離線」關房計時
+	if r.emptyTimer != nil {
+		r.emptyTimer.Stop()
+		r.emptyTimer = nil
+	}
+
 	for _, p := range r.players {
 		if p != nil && p.Name == name {
 			oldClient := p.Client
@@ -368,6 +386,7 @@ func (r *Room) handleDisconnect(c *Client) {
 			r.spectators = append(r.spectators[:i], r.spectators[i+1:]...)
 			r.Broadcast("error", fmt.Sprintf("%s 離開觀戰", sp.Name))
 			r.broadcastState()
+			r.cleanupIfEmpty()
 			return
 		}
 	}
@@ -380,16 +399,84 @@ func (r *Room) handleDisconnect(c *Client) {
 		p.IsDisconnected = true
 		p.IsReady = false
 
-		if r.match != nil && r.match.CurrentGame != nil {
-			// Match running: keep the seat and allow reconnect
+		if r.matchOngoing() {
+			// 對局進行中：保留座位等待重連
 			r.Broadcast("error", fmt.Sprintf("%s 離線（等待重新連線...）", p.Name))
+			r.scheduleAbandonCheck()
 		} else {
 			r.players[i] = nil
 			r.Broadcast("error", fmt.Sprintf("%s 離開了房間", p.Name))
 		}
 		r.broadcastState()
+		r.cleanupIfEmpty()
 		return
 	}
+}
+
+func (r *Room) matchOngoing() bool {
+	return r.match != nil && r.match.CurrentGame != nil && r.match.MatchWinner == nil
+}
+
+// cleanupIfEmpty 關閉沒有任何連線者的房間（對局進行中的交給 abandon 計時器）。
+func (r *Room) cleanupIfEmpty() {
+	if r.manager == nil || len(r.spectators) > 0 || r.matchOngoing() {
+		return
+	}
+	for _, p := range r.players {
+		if p != nil && !p.IsDisconnected {
+			return
+		}
+	}
+	// 只剩離線玩家或全空：清掉並關房
+	for i := range r.players {
+		r.players[i] = nil
+	}
+	if r.match != nil {
+		r.match.ForceEndMatch()
+		r.match = nil
+	}
+	if r.emptyTimer != nil {
+		r.emptyTimer.Stop()
+		r.emptyTimer = nil
+	}
+	r.manager.removeRoom(r.ID)
+}
+
+// scheduleAbandonCheck 在對局中全員離線時啟動計時：
+// 超過 abandonTimeout 仍無人重連就強制結束對局並關閉房間。
+func (r *Room) scheduleAbandonCheck() {
+	if r.manager == nil {
+		return
+	}
+	for _, p := range r.players {
+		if p != nil && !p.IsDisconnected {
+			return // 還有人在線，不用計時
+		}
+	}
+	if r.emptyTimer != nil {
+		r.emptyTimer.Stop()
+	}
+	r.emptyTimer = time.AfterFunc(abandonTimeout, func() {
+		r.withLock(func() {
+			r.emptyTimer = nil
+			for _, p := range r.players {
+				if p != nil && !p.IsDisconnected {
+					return // 有人回來了
+				}
+			}
+			log.Printf("[Room %s] All players gone for %s, closing", r.ID, abandonTimeout)
+			if r.match != nil {
+				r.match.ForceEndMatch()
+				r.match = nil
+			}
+			r.Broadcast("gameTerminated", nil)
+			for i := range r.players {
+				r.players[i] = nil
+			}
+			r.broadcastState()
+			r.cleanupIfEmpty()
+		})
+	})
 }
 
 func (r *Room) setReady(seatIndex int, ready bool) {
