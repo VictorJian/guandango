@@ -10,9 +10,19 @@ class WSocket {
   private handlers = new Map<string, Set<Handler>>();
   private queue: string[] = [];
   private reconnectDelay = 500;
+  private joinPayload: string | null = null; // 最後一次 joinRoom，重連後自動重新加入
+  private hadConnected = false;
 
   constructor() {
     this.connect();
+
+    // 手機從背景回到前景時，連線常已被系統悄悄切斷：主動檢查並立即重連
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && (!this.ws || this.ws.readyState !== WebSocket.OPEN)) {
+        try { this.ws?.close(); } catch { /* noop */ }
+        if (!this.ws) this.connect();
+      }
+    });
   }
 
   private url(): string {
@@ -26,6 +36,11 @@ class WSocket {
 
     ws.onopen = () => {
       this.reconnectDelay = 500;
+      // 斷線重連：自動重新加入原房間（伺服器會以同名接管原座位）
+      if (this.hadConnected && this.joinPayload) {
+        ws.send(this.joinPayload);
+      }
+      this.hadConnected = true;
       // Flush queued messages
       for (const msg of this.queue) ws.send(msg);
       this.queue = [];
@@ -74,6 +89,9 @@ class WSocket {
 
   emit(event: string, data?: any) {
     const payload = JSON.stringify(data === undefined ? { event } : { event, data });
+    if (event === 'joinRoom') {
+      this.joinPayload = payload;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(payload);
     } else {

@@ -470,3 +470,61 @@ func TestSpectatorMode(t *testing.T) {
 	// Spectator must not be able to play: no crash expected, state unchanged
 	spec.send("playHand", []any{})
 }
+
+// TestSameNameTakeover verifies that re-joining with the same name takes over
+// the seat immediately (mobile sleep/zombie-connection recovery), and the new
+// connection's actions work.
+func TestSameNameTakeover(t *testing.T) {
+	rm := NewRoomManager()
+	srv := httptest.NewServer(http.HandlerFunc(WSHandler(rm)))
+	defer srv.Close()
+
+	// First connection joins as "Dup"
+	a := dialWS(t, srv.URL)
+	defer a.conn.Close()
+	a.waitFor("connected")
+	a.send("joinRoom", map[string]any{"playerName": "Dup", "roomId": "takeover-room"})
+	a.waitFor("roomState")
+
+	// Second connection with the same name takes over the seat (a is NOT closed,
+	// simulating a zombie connection the server hasn't noticed yet)
+	b := dialWS(t, srv.URL)
+	defer b.conn.Close()
+	var connectedB struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(b.waitFor("connected"), &connectedB); err != nil {
+		t.Fatal(err)
+	}
+	b.send("joinRoom", map[string]any{"playerName": "Dup", "roomId": "takeover-room"})
+
+	var rs struct {
+		Players []*struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"players"`
+	}
+	if err := json.Unmarshal(b.waitFor("roomState"), &rs); err != nil {
+		t.Fatalf("bad roomState: %v", err)
+	}
+	if rs.Players[0] == nil || rs.Players[0].Name != "Dup" {
+		t.Fatalf("seat 0 should still be Dup, got %+v", rs.Players[0])
+	}
+	if rs.Players[0].ID != connectedB.ID {
+		t.Errorf("seat 0 should be owned by the NEW connection %s, got %s", connectedB.ID, rs.Players[0].ID)
+	}
+
+	// New connection's actions work: ready toggles state
+	b.send("ready", nil)
+	var rs2 struct {
+		Players []*struct {
+			IsReady bool `json:"isReady"`
+		} `json:"players"`
+	}
+	if err := json.Unmarshal(b.waitFor("roomState"), &rs2); err != nil {
+		t.Fatalf("bad roomState after ready: %v", err)
+	}
+	if rs2.Players[0] == nil || !rs2.Players[0].IsReady {
+		t.Error("ready from the new connection should take effect")
+	}
+}

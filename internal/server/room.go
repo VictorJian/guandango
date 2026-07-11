@@ -144,12 +144,21 @@ func (r *Room) Broadcast(event string, data any) {
 }
 
 func (r *Room) addPlayer(c *Client, name string) {
-	// Reconnection: same name marked disconnected
+	// 同名玩家重新加入：直接接管原座位。
+	// 不能只認 IsDisconnected —— 手機休眠斷線後，伺服器要到 ping 逾時（約60秒）
+	// 才會發現舊連線已死，這段期間玩家重連必須立刻拿回自己的位子。
 	for _, p := range r.players {
-		if p != nil && p.Name == name && p.IsDisconnected {
+		if p != nil && p.Name == name {
+			oldClient := p.Client
 			p.IsDisconnected = false
 			p.ID = c.ID
 			p.Client = c
+
+			// 解除舊連線的事件綁定，避免殭屍連線還能代打
+			if oldClient != nil && oldClient != c {
+				oldClient.Off("ready", "start", "chatMessage", "switchSeat", "setGameMode", "forceEndGame",
+					"playHand", "pass", "tribute", "returnTribute", "confirmStart", "watchPlayer")
+			}
 
 			r.bindSocketListeners(c)
 
@@ -159,7 +168,7 @@ func (r *Room) addPlayer(c *Client, name string) {
 				g.SendStateTo(p)
 			}
 
-			r.Broadcast("error", fmt.Sprintf("Player %s reconnected!", name))
+			r.Broadcast("error", fmt.Sprintf("%s 重新連線了！", name))
 			r.broadcastState()
 			return
 		}
@@ -373,10 +382,10 @@ func (r *Room) handleDisconnect(c *Client) {
 
 		if r.match != nil && r.match.CurrentGame != nil {
 			// Match running: keep the seat and allow reconnect
-			r.Broadcast("error", fmt.Sprintf("Player %s disconnected (Waiting for reconnect...)", p.Name))
+			r.Broadcast("error", fmt.Sprintf("%s 離線（等待重新連線...）", p.Name))
 		} else {
 			r.players[i] = nil
-			r.Broadcast("error", fmt.Sprintf("Player %s left the room", p.Name))
+			r.Broadcast("error", fmt.Sprintf("%s 離開了房間", p.Name))
 		}
 		r.broadcastState()
 		return

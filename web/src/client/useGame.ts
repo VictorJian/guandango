@@ -45,6 +45,7 @@ export function useGame() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [mySeat, setMySeat] = useState<number>(-1);
   const [isSpectator, setIsSpectator] = useState(false);
+  const [announcement, setAnnouncement] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<{sender: string, text: string, time: string, seatIndex: number}[]>([]);
   const [roomList, setRoomList] = useState<Array<{
@@ -91,6 +92,11 @@ export function useGame() {
       setError(msg);
       setTimeout(() => setError(null), 3000);
     });
+
+    // 全體公告（畫面中央倒數顯示，由 App 的公告元件負責清除）
+    socket.on('announce', (msg: string) => {
+      setAnnouncement(msg);
+    });
     
     socket.on('gameOver', (data: { winners: number[] }) => {
       console.log(`[Client] Game Over! Winners: ${data.winners.join(', ')}`);
@@ -120,6 +126,7 @@ export function useGame() {
       socket.off('gameState');
       socket.off('spectatorMode');
       socket.off('error');
+      socket.off('announce');
       socket.off('gameOver');
       socket.off('gameTerminated');
       socket.off('roomList');
@@ -186,6 +193,8 @@ export function useGame() {
       socket.emit('confirmStart');
   }
 
+  const clearAnnouncement = () => setAnnouncement(null);
+
   return {
     inRoom,
     roomState,
@@ -194,6 +203,8 @@ export function useGame() {
     setMySeat,
     isSpectator,
     error,
+    announcement,
+    clearAnnouncement,
     chatMessages,
     roomList,
     actions: { joinRoom, setReady, playHand, passTurn, startGame, payTribute, returnTribute, sendChat, switchSeat, setGameMode, useSkill, forceEndGame, fetchRoomList, watchPlayer, confirmStart }

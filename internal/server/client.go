@@ -82,10 +82,11 @@ func (c *Client) Emit(event string, data any) {
 		return
 	}
 
+	// 持鎖檢查並送出：close() 需要寫鎖才能關閉 channel，
+	// 因此不會發生「檢查完才被關閉」導致 send on closed channel 的競態。
 	c.mu.RLock()
-	closed := c.closed
-	c.mu.RUnlock()
-	if closed {
+	defer c.mu.RUnlock()
+	if c.closed {
 		return
 	}
 

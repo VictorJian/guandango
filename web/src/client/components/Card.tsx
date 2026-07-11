@@ -71,7 +71,7 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
   const baseClasses = "relative bg-white rounded shadow-md border border-gray-300 flex flex-col justify-between select-none cursor-pointer transition-transform";
   const sizeClasses = small
     ? "w-8 h-12 text-xs p-1"
-    : "w-16 h-24 text-base p-2 hover:-translate-y-2";
+    : "w-12 h-[4.5rem] text-sm p-1.5 md:w-16 md:h-24 md:text-base md:p-2 hover:-translate-y-2";
   const selectClasses = selected ? "ring-2 ring-blue-500 -translate-y-4" : "";
   // Highlight animation for new cards - glowing green border with pulse
   const highlightClasses = isHighlighted
@@ -101,16 +101,16 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
       {/* 左上角：牌值 + 花色（牌重疊時仍看得到） */}
       <div className="flex flex-col items-start leading-none">
         <div className="font-bold">{getRankLabel(card.rank)}</div>
-        <SuitIcon suit={card.suit} className={small ? "w-2.5 h-2.5 mt-0.5" : "w-4 h-4 mt-0.5"} />
+        <SuitIcon suit={card.suit} className={small ? "w-2.5 h-2.5 mt-0.5" : "w-3 h-3 md:w-4 md:h-4 mt-0.5"} />
       </div>
 
       {/* 中央浮水印 */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
-        <SuitIcon suit={card.suit} className={small ? "w-5 h-5" : "w-9 h-9"} />
+        <SuitIcon suit={card.suit} className={small ? "w-5 h-5" : "w-7 h-7 md:w-9 md:h-9"} />
       </div>
 
       {/* 右下角花色 */}
-      <SuitIcon suit={card.suit} className={`self-end ${small ? "w-2.5 h-2.5" : "w-4 h-4"}`} />
+      <SuitIcon suit={card.suit} className={`self-end ${small ? "w-2.5 h-2.5" : "w-3 h-3 md:w-4 md:h-4"}`} />
 
       {card.isLevelCard && (
           <div className="absolute top-0 right-0 w-2 h-2 bg-yellow-400 rounded-full"></div>

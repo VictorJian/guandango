@@ -36,6 +36,7 @@ export const GameTable: React.FC<Props> = ({
 }) => {
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [showChat, setShowChat] = useState(false); // 手機版聊天室開關（桌機恆顯示）
   const [viewMode, setViewMode] = useState<'normal' | 'stacked'>('normal'); 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -427,8 +428,8 @@ export const GameTable: React.FC<Props> = ({
     const winnerPos = getWinnerPosition();
     
     return (
-      <div 
-          className={`absolute ${pos} flex flex-col items-center p-4 rounded-lg transition-colors ${data.isTeammate ? 'bg-blue-900/40 border-2 border-blue-400' : 'bg-black/20'} ${!gameState && !data.player ? 'cursor-pointer hover:bg-white/10' : ''}`}
+      <div
+          className={`absolute ${pos} flex flex-col items-center p-2 md:p-4 rounded-lg transition-colors ${data.isTeammate ? 'bg-blue-900/40 border-2 border-blue-400' : 'bg-black/20'} ${!gameState && !data.player ? 'cursor-pointer hover:bg-white/10' : ''}`}
           onClick={() => !isSpectator && !gameState && !data.player && onSwitchSeat(data.seat)}
       >
          {/* Chat Bubble */}
@@ -442,7 +443,7 @@ export const GameTable: React.FC<Props> = ({
            </div>
          )}
          
-         <div className="w-12 h-12 bg-gray-300 rounded-full flex items-center justify-center mb-2 relative">
+         <div className="w-9 h-9 md:w-12 md:h-12 bg-gray-300 rounded-full flex items-center justify-center mb-2 relative">
            {data.player ? data.player.name[0].toUpperCase() : (gameState ? '?' : '+')}
            {data.isTeammate && <div className="absolute -top-1 -right-1 bg-blue-500 text-xs text-white px-1 rounded">友</div>}
            {data.isOpponent && <div className="absolute -top-1 -right-1 bg-red-500 text-xs text-white px-1 rounded">敵</div>}
@@ -458,13 +459,13 @@ export const GameTable: React.FC<Props> = ({
                </div>
            )}
          </div>
-         <div className="text-white font-bold flex items-center gap-2">
+         <div className="text-white font-bold flex items-center gap-2 text-sm md:text-base">
              {data.player ? data.player.name : (gameState ? '等待中...' : '點選入座')}
              {data.player && (data.player as any).isDisconnected && (
                  <span className="text-red-500 text-xs font-bold bg-white px-1 rounded animate-pulse">OFF</span>
              )}
          </div>
-         {gameState && <div className="text-yellow-400">張數: {data.handCount}</div>}
+         {gameState && <div className="text-yellow-400 text-sm md:text-base">張數: {data.handCount}</div>}
          {data.player && data.player.isReady && !gameState && <div className="text-green-400 text-sm">Ready</div>}
          {watchers.length > 0 && (
              <div className="text-purple-400 text-xs mt-1 max-w-32 text-center">
@@ -533,11 +534,12 @@ export const GameTable: React.FC<Props> = ({
 
   return (
     <div className="relative w-full h-screen bg-[#1e1e1e] overflow-hidden flex items-center justify-center font-mono">
-      <div className="absolute inset-20 border-2 border-[#333333] rounded-xl opacity-50 pointer-events-none"></div>
+      <div className="absolute inset-4 md:inset-20 border-2 border-[#333333] rounded-xl opacity-50 pointer-events-none"></div>
 
-      <PlayerArea data={top} pos="top-4 left-1/2 -translate-x-1/2" />
-      <PlayerArea data={left} pos="left-8 top-1/2 -translate-y-1/2" />
-      <PlayerArea data={right} pos="right-8 top-1/2 -translate-y-1/2" />
+      {/* 手機時上方玩家往右挪，避免和左上角等級/歷史紀錄面板重疊 */}
+      <PlayerArea data={top} pos="top-4 left-[64%] md:left-1/2 -translate-x-1/2" />
+      <PlayerArea data={left} pos="left-1 md:left-8 top-1/2 -translate-y-1/2" />
+      <PlayerArea data={right} pos="right-1 md:right-8 top-1/2 -translate-y-1/2" />
 
       {/* Spectator Panel */}
       {isSpectator && (
@@ -562,8 +564,16 @@ export const GameTable: React.FC<Props> = ({
           </div>
       )}
       
-      {/* Chat Box */}
-      <div className="absolute top-4 right-4 w-72 h-56 bg-[#252526] border border-[#333333] rounded flex flex-col pointer-events-auto z-10 shadow-lg">
+      {/* Chat toggle (mobile only) */}
+      <button
+          onClick={() => setShowChat(!showChat)}
+          className="md:hidden absolute top-4 right-4 z-30 bg-[#252526] border border-[#333333] rounded-full w-10 h-10 text-lg shadow-lg"
+      >
+          💬
+      </button>
+
+      {/* Chat Box — always visible on desktop, togglable on mobile */}
+      <div className={`absolute top-16 md:top-4 right-4 w-72 h-56 bg-[#252526] border border-[#333333] rounded ${showChat ? 'flex' : 'hidden'} md:flex flex-col pointer-events-auto z-20 shadow-lg`}>
           <div className="flex-1 overflow-y-auto p-2 text-sm text-[#d4d4d4] scrollbar-thin">
               {chatMessages.map((msg, i) => (
                   <div key={i} className="mb-1">
@@ -615,9 +625,9 @@ export const GameTable: React.FC<Props> = ({
 
       {gameState && (
           <div className="absolute top-4 left-4 flex flex-col gap-2 items-start z-50">
-              <div className="bg-[#252526] border border-[#333333] px-4 py-2 rounded shadow-lg flex flex-col gap-1">
+              <div className="bg-[#252526] border border-[#333333] px-3 py-1.5 md:px-4 md:py-2 rounded shadow-lg flex flex-col gap-1 max-w-[46vw] md:max-w-none">
                   {gameState.teamLevels && (
-                      <div className="text-sm flex flex-col gap-0.5">
+                      <div className="text-xs md:text-sm flex flex-col gap-0.5">
                           {[0, 1].map(team => {
                               const members = roomState.players
                                   .filter(p => p && p.seatIndex % 2 === team)
@@ -626,7 +636,7 @@ export const GameTable: React.FC<Props> = ({
                               const isActive = gameState.activeTeam === team;
                               return (
                                   <div key={team} className={isActive ? 'text-yellow-400 font-bold' : 'text-gray-400'}>
-                                      {members}：{gameState.teamLevels![team]}階{isActive && '（目前等級）'}
+                                      {members}：{gameState.teamLevels![team]}階{isActive && '（目前）'}
                                   </div>
                               );
                           })}
@@ -637,7 +647,7 @@ export const GameTable: React.FC<Props> = ({
               {/* History Button — below the level panel */}
               <button
                   onClick={() => setShowHistory(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg font-medium transition flex items-center gap-2"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 text-sm md:px-4 md:py-2 md:text-base rounded-lg shadow-lg font-medium transition flex items-center gap-2"
                   title="查看遊戲歷史紀錄"
               >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -686,13 +696,13 @@ export const GameTable: React.FC<Props> = ({
       </div>
 
       <div className="absolute bottom-0 w-full flex flex-col items-center pb-4 z-20 pointer-events-none">
-        {/* Debug Info - remove in production */}
+        {/* Debug Info */}
         {gameState && (
             <div className="text-xs text-gray-500 mb-1 pointer-events-auto">
                 [Debug] mySeat={mySeat}, currentTurn={gameState.currentTurn}, phase={gameState.phase}, isMyTurn={String(gameState.currentTurn === mySeat)}, myCards={Array.isArray(gameState.hands[mySeat]) ? (gameState.hands[mySeat] as any[]).length : '?'}
             </div>
         )}
-        
+
         {/* Skill Cards Area */}
         {gameState && gameState.gameMode === GameMode.Skill && gameState.mySkillCards && gameState.mySkillCards.length > 0 && (
             <div className="mb-4 pointer-events-auto flex flex-col items-center">
@@ -714,31 +724,31 @@ export const GameTable: React.FC<Props> = ({
         )}
 
         {/* Controls Container */}
-        <div className="mb-8 pointer-events-auto">
+        <div className="mb-4 md:mb-8 pointer-events-auto">
             {!isSpectator && gameState && gameState.currentTurn === mySeat && gameState.phase === 'Playing' && (
-                <div className="flex gap-4">
-                    <button 
+                <div className="flex flex-wrap justify-center gap-2 md:gap-4">
+                    <button
                       onClick={toggleViewMode}
-                      className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full font-bold shadow-lg mr-4"
+                      className="bg-gray-600 hover:bg-gray-700 text-white px-3 md:px-4 py-2 rounded-full font-bold shadow-lg text-sm md:text-base"
                     >
                       {viewMode === 'normal' ? '切換同花順檢視' : '切換普通檢視'}
                     </button>
-                    <button 
+                    <button
                       onClick={handleHint}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded-full font-bold shadow-lg mr-4"
+                      className="bg-yellow-500 hover:bg-yellow-600 text-black px-3 md:px-4 py-2 rounded-full font-bold shadow-lg text-sm md:text-base"
                     >
                       提示
                     </button>
-                    <button 
-                      onClick={handlePlay} 
+                    <button
+                      onClick={handlePlay}
                       disabled={selectedCardIds.length === 0}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-full font-bold shadow-lg disabled:opacity-50"
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-6 md:px-8 py-2 rounded-full font-bold shadow-lg disabled:opacity-50 text-sm md:text-base"
                     >
                       出牌
                     </button>
-                    <button 
+                    <button
                       onClick={onPass}
-                      className="bg-red-600 hover:bg-red-700 text-white px-8 py-2 rounded-full font-bold shadow-lg"
+                      className="bg-red-600 hover:bg-red-700 text-white px-6 md:px-8 py-2 rounded-full font-bold shadow-lg text-sm md:text-base"
                     >
                       過
                     </button>
@@ -760,8 +770,8 @@ export const GameTable: React.FC<Props> = ({
             )}
         </div>
 
-        {/* Hand Area - Compact Grid */}
-        <div className={`px-8 flex items-end justify-center pointer-events-auto transition-all duration-300 ${viewMode === 'normal' ? 'h-32 -space-x-8' : 'h-64 gap-1'}`}>
+        {/* Hand Area - Compact Grid (horizontal scroll on small screens) */}
+        <div className={`px-2 md:px-8 max-w-full overflow-x-auto flex items-end justify-start md:justify-center pointer-events-auto transition-all duration-300 ${viewMode === 'normal' ? 'h-32 -space-x-6 md:-space-x-8' : 'h-64 gap-1'}`}>
           {viewMode === 'normal' ? (
               // Normal View
               sortedHand.map((card: CardType) => (

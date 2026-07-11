@@ -73,6 +73,8 @@ type Game struct {
 	tributeState TributeState
 	confirmSeat  int // 上一局第四名，負責在貢牌完成後按下確認
 
+	lowCardAlerted [4]bool // 每位玩家「剩10張以下」的全體通知，每局只發一次
+
 	teamLevels  map[int]int // Team 0 (seats 0,2), Team 1 (seats 1,3)
 	activeTeam  int
 	prevWinners []int
@@ -594,6 +596,12 @@ func (g *Game) handlePlayHand(seatIndex int, cards []game.Card, providedHandType
 		fmt.Sprintf("%s 出牌: %s (%s)", g.players[seatIndex].Name, handTypeName, cardDescription(cards)),
 		&seat,
 		map[string]any{"cards": cards, "handType": hand.Type, "cardsCount": len(cards)})
+
+	// 手牌降到10張（含）以下時，向全體發送一次性通知（畫面中央倒數顯示）
+	if remaining := len(g.hands[seatIndex]); remaining > 0 && remaining <= 10 && !g.lowCardAlerted[seatIndex] {
+		g.lowCardAlerted[seatIndex] = true
+		g.room.Broadcast("announce", fmt.Sprintf("⚠️ %s 只剩 %d 張牌！", g.players[seatIndex].Name, remaining))
+	}
 
 	if len(g.hands[seatIndex]) == 0 {
 		g.winners = append(g.winners, seatIndex)
